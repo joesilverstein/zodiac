@@ -1,0 +1,46 @@
+---
+title: "Zodiac Data Science Case Study"
+output: pdf_document
+---
+
+```{r include = FALSE}
+library(data.table)
+library(forecast)
+library(lubridate)
+
+setwd("~/Google Drive/Jobs/Zodiac/")
+
+trans = fread("data_sci_case/customer_trans_log.csv")
+setkey(trans, "customer_id")
+info = fread("data_sci_case/customer_info.csv")
+setkey(info, "customer_id")
+preds = fread("data_sci_case/customer_preds.csv")
+
+trans_info = merge(trans, info)
+```
+
+## Initial Time Series Attempt
+
+Since the data includes a time component, my initial thought was to use time series methods. On any given day, most people don't buy anything. So daily sales can't be forecasted very accurately for an individual. This means the time series has to be aggregated into chunks of time. The most natural level of aggregation is periods of 3 months, but this won't work because the resulting time series will be too short. Instead, I want to aggregate at a frequency that gets rid of a lot of the $0 by-period sales amounts but at the same time still gives a long enough time series to be useable. I thought weekly aggregation would accomplish this, so that is what I did.
+
+```{r}
+# Aggregate here
+```
+
+
+It's pretty clear that the model should include an autoregressive component, because I'm trying to forecast sales forward in time based in part on past sales values. This means the data are not iid, so this is why I initially felt the need to use time series rather than machine learning models. Since the weekly time series I'm working with is relatively short, I should probably use only one lag.
+
+The time series is intermittent (many zeros), so standard autoregression won't work because a naive guess of $0 will outperform it. I did some research on how to handle this, and "Croston's method"" seems to be the best approach for forecasting an individual time series. However, in this case we're dealing with forecasting the future values of many correlated time series simultaneously, so it would be better to use a vector autoregressive model if possible.
+
+The other problem I faced was how to deal with the non-autoregressive variables in `customer_info.csv`. Since the time series is relatively short, adding in all the necessary dummy variables could result in overfitting without doing some form of regularization. Additionally, I would need to use a distributed lag method, which would further complicate the problem. However, there are enough customers to estimate a separate autoregressive model for each combination of categories. Because of this, I thought it would be a good idea to estimate a separate autoregressive model for each combination of `(geographic_location, loyalty_card, email_news, fav_category, gender, income_level)`. Since there are many customers (and thus many time series) in each group, I want to estimate a VAR(1) model for each group. However, due to the sparsity of the data, a standard VAR(1) will not work, so I would need to use some sort of sparse VAR. Then there is still the matter of evaluating the accuracy of the model. So I decided to ignore the non-autoregressive variables and just use Croston's Method on each individual time series.
+
+## Croston's Method
+
+Croston's method is designed to forecast the number of units bought by the consumer. In the data given to me, I don't know the number of units nor the price, and I don't even know whether there is more than one type of unit or whether any of the prices of those units change over time. However, if I multiply the sales amounts by 100, they become integer-valued and I can think of them as the number of "units" demanded, so that's what I did.
+
+```{r}
+trans_info$sales_amount_100 = trans_info$sales_amount * 100
+```
+
+Then Croston's method can be applied to each of the 20,000 individual time series to forecast the next 12 weeks of demand.
+
